@@ -173,7 +173,7 @@ def compare_algorithms(
     fixed_agents = {}
 
     for iid in env.intersections.keys():
-        fixed_agents[iid] = FixedTimeAgent(iid)
+        fixed_agents[iid] = FixedTimeAgent(iid, switch_interval=30)
 
     results["Fixed-Time"] = evaluate_agents(
         fixed_agents,

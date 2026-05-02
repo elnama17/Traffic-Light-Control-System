@@ -2,23 +2,26 @@ import json
 
 
 def plot_training_progress(history_file, output_file=None):
+    # this function just plots graphs from training history
+
     try:
         import matplotlib.pyplot as plt
     except ImportError:
         print("Matplotlib not installed. Install with: pip install matplotlib")
         return
 
-    # Load metrics saved during training
+    # load saved data from training
     with open(history_file, 'r') as f:
         history = json.load(f)
 
     episode_rewards = history['episode_rewards']
     episode_metrics = history['episode_metrics']
 
+    # create 4 graphs
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     fig.suptitle('Q-Learning Training Progress', fontsize=14)
 
-    # Reward should usually become less negative as queues improve
+    # rewards over time (should improve)
     ax = axes[0, 0]
     ax.plot(episode_rewards, label='Cumulative Reward')
     ax.set_xlabel('Episode')
@@ -27,7 +30,7 @@ def plot_training_progress(history_file, output_file=None):
     ax.grid(True, alpha=0.3)
     ax.legend()
 
-    # Lower waiting time means vehicles spend less time stuck in queues
+    # waiting time (lower is better)
     ax = axes[0, 1]
     avg_waits = [m['avg_wait'] for m in episode_metrics]
     ax.plot(avg_waits, label='Avg Wait Time')
@@ -37,7 +40,7 @@ def plot_training_progress(history_file, output_file=None):
     ax.grid(True, alpha=0.3)
     ax.legend()
 
-    # Lower queue length means traffic is being cleared faster
+    # queue length (lower is better)
     ax = axes[1, 0]
     avg_queues = [m['avg_queue'] for m in episode_metrics]
     ax.plot(avg_queues, label='Avg Queue Length')
@@ -47,7 +50,7 @@ def plot_training_progress(history_file, output_file=None):
     ax.grid(True, alpha=0.3)
     ax.legend()
 
-    # Higher throughput means more vehicles exited the grid
+    # throughput (higher is better)
     ax = axes[1, 1]
     throughputs = [m['throughput'] for m in episode_metrics]
     ax.plot(throughputs, label='Throughput')
@@ -59,6 +62,7 @@ def plot_training_progress(history_file, output_file=None):
 
     plt.tight_layout()
 
+    # save or show plot
     if output_file:
         plt.savefig(output_file, dpi=100)
         print(f"Plot saved to {output_file}")
@@ -67,7 +71,8 @@ def plot_training_progress(history_file, output_file=None):
 
 
 def analyze_training_history(history_file):
-    # Read the saved training history from train.py
+    # this prints summary of training performance
+
     with open(history_file, 'r') as f:
         history = json.load(f)
 
@@ -78,30 +83,37 @@ def analyze_training_history(history_file):
     print("\n" + "=" * 60)
     print("TRAINING ANALYSIS")
     print("=" * 60)
+
     print("\nConfiguration:")
     for key, val in config.items():
         print(f"  {key}: {val}")
 
-    # Use the real episode length instead of a hardcoded number
+    # calculate total steps
     episode_length = config.get('episode_length', 0)
     total_steps = episode_length * len(episode_rewards)
 
     print(f"\nTotal Episodes: {len(episode_rewards)}")
     print(f"Total Training Steps: {total_steps:,}")
 
-    # Compare the beginning and end of training
+    # compare start vs end of training
     comparison_window = min(10, len(episode_metrics))
+
     early_episodes = episode_metrics[:comparison_window]
     late_episodes = episode_metrics[-comparison_window:]
 
+    # average wait time
     early_avg_wait = sum(m['avg_wait'] for m in early_episodes) / len(early_episodes)
     late_avg_wait = sum(m['avg_wait'] for m in late_episodes) / len(late_episodes)
+
+    # improvement %
     improvement = ((early_avg_wait - late_avg_wait) / early_avg_wait) * 100 if early_avg_wait else 0
 
+    # average queue
     early_avg_queue = sum(m['avg_queue'] for m in early_episodes) / len(early_episodes)
     late_avg_queue = sum(m['avg_queue'] for m in late_episodes) / len(late_episodes)
 
     print("\nPerformance Comparison:")
+
     print(f"  Early episodes (first {comparison_window}):")
     print(f"    Avg wait time: {early_avg_wait:.2f}s")
     print(f"    Avg queue length: {early_avg_queue:.2f}")
@@ -112,8 +124,9 @@ def analyze_training_history(history_file):
 
     print(f"\n  Improvement: {improvement:+.1f}%")
 
-    # Show the final episode as the last observed training result
+    # show last episode result
     final_metrics = episode_metrics[-1]
+
     print("\nFinal Episode Metrics:")
     for key, val in final_metrics.items():
         if isinstance(val, float):
@@ -123,33 +136,42 @@ def analyze_training_history(history_file):
 
 
 def compare_algorithms_table(results):
+    # print table comparing all algorithms
+
     print("\n" + "=" * 80)
     print("ALGORITHM COMPARISON TABLE")
     print("=" * 80)
 
     metrics = ['avg_wait', 'avg_queue', 'throughput', 'total_vehicles']
+
+    # header row
     print(f"{'Algorithm':<20}", end='')
     for metric in metrics:
         print(f"{metric:<15}", end='')
     print()
+
     print("-" * 80)
 
-    # Print one row per algorithm
+    # each algorithm row
     for algo_name, algo_metrics in results.items():
         print(f"{algo_name:<20}", end='')
+
         for metric in metrics:
             val = algo_metrics.get(metric, 0)
+
             if isinstance(val, float):
                 print(f"{val:<15.2f}", end='')
             else:
                 print(f"{val:<15}", end='')
+
         print()
 
-    # Use fixed-time as the baseline if it exists
+    # compare vs fixed-time
     if 'Fixed-Time' in results and len(results) > 1:
         print("\n" + "-" * 80)
         print("IMPROVEMENTS OVER FIXED-TIME BASELINE")
         print("-" * 80)
+
         fixed_baseline = results['Fixed-Time']
 
         for algo_name, algo_metrics in results.items():
@@ -174,13 +196,16 @@ def compare_algorithms_table(results):
 if __name__ == '__main__':
     import sys
 
+    # simple CLI usage
     if len(sys.argv) > 1:
         if sys.argv[1] == 'plot':
             history_file = sys.argv[2] if len(sys.argv) > 2 else 'checkpoints/training_history.json'
             plot_training_progress(history_file)
+
         elif sys.argv[1] == 'analyze':
             history_file = sys.argv[2] if len(sys.argv) > 2 else 'checkpoints/training_history.json'
             analyze_training_history(history_file)
+
     else:
         print("Usage:")
         print("  python analyze.py plot [history_file]")
