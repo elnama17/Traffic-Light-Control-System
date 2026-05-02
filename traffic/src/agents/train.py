@@ -3,13 +3,27 @@
 import sys
 import os
 import json
+import os
+import pickle
 from pathlib import Path
 # Here I add the project root to the path so this file can import project modules correctly.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from traffic_rl.src.env import TrafficGridEnv
-from traffic_rl.src.agents import QLearningAgent
-from traffic_rl.src.utils import save_agents, save_metrics
+from traffic.src.env import TrafficGridEnv
+from traffic.src.agents.q_learning_agent import QLearningAgent
+from traffic.src.agents.rule_based_agent import RuleBasedAgent
 
+def save_agents(agents, checkpoint_dir):
+    # create checkpoint folder if needed
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    # save each agent Q-table separately
+    for iid, agent in agents.items():
+        filename = f"q_table_{iid[0]}_{iid[1]}.pkl"
+        filepath = os.path.join(checkpoint_dir, filename)
+
+        with open(filepath, "wb") as f:
+            pickle.dump(dict(agent.q_table), f)
+            
 def train_q_learning(num_episodes=100, episode_length=3600, arrival_rate=0.1,
                     learning_rate=0.1, epsilon_decay=0.995, checkpoint_dir='checkpoints'):
     "This function trains Q-learning agents in the traffic simulation environment."
