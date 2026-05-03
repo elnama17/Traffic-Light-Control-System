@@ -1,0 +1,43 @@
+{
+  "training": {
+    "num_episodes": 200,
+    "episode_length": 3600,
+    "arrival_rate": 0.15,
+    "learning_rate": 0.1,
+    "discount_factor": 0.99,
+    "epsilon_initial": 0.1,
+    "epsilon_decay": 0.995,
+    "checkpoint_dir": "checkpoints"
+  },
+  "evaluation": {
+    "num_episodes": 10,
+    "episode_length": 3600,
+    "random_seed": 123,
+    "traffic_scenarios": [
+      {
+        "name": "light",
+        "arrival_rate": 0.05
+      },
+      {
+        "name": "medium",
+        "arrival_rate": 0.10
+      },
+      {
+        "name": "heavy",
+        "arrival_rate": 0.15
+      }
+    ]
+  },
+  "environment": {
+    "grid_rows": 2,
+    "grid_cols": 2,
+    "min_phase": 5,
+    "yellow_steps": 2
+  },
+  "agents": {
+    "rule_based": {
+      "switch_threshold": 5,
+      "min_phase": 5
+    }
+  }
+}
