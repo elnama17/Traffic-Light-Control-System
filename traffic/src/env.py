@@ -5,47 +5,45 @@ import numpy as np
 GRID_ROWS = 2
 GRID_COLS = 2
 
-# Approach directions
+# Approach directions which are North, South, East, West
 APPROACHES = ('N', 'S', 'E', 'W')
 
 # Which approaches are allowed to discharge in each phase
 PHASE_APPROACHES = {
-    0: ('N', 'S'),  # NS green
-    1: ('E', 'W'),  # EW green
+    0: ('N', 'S'),  # North South green
+    1: ('E', 'W'),  # East West green
 }
 
 MIN_PHASE = 5       # minimum green duration before switching
 YELLOW_STEPS = 2    # all-red transition length
 
-# Independent agents in same environment
 
 class Vehicle:
-    __slots__=('vid','spawn_time','wait_time') # Makes simulation faster by avoiding dynamic attribute creation (dictionary) and using less memory per vehicle, since we expect many vehicles in the system at once. By defining __slots__, we tell Python to only allocate space for these three attributes and not use a dynamic dict for each instance.
+    __slots__=('vid','spawn_time','wait_time') # Makes simulation faster by avoiding dynamic attribute creation per vehicle
     def __init__(self,vid,spawn_time):
-        self.vid=vid 
-        self.spawn_time=spawn_time # Can be useful for metrics like total trip time, but not strictly necessary for the environment dynamics
-        self.wait_time=0 # Every step the vehicle spends waiting in a queue, it accrues one second of wait time. This is important for reward calculation and performance metrics, as it captures the delay experienced by vehicles in the system.
-
+        self.vid=vid # vehicle id
+        self.spawn_time=spawn_time # when vehicle entered the network
+        self.wait_time=0 # waiting time of the vehicle, important for performance metrics and reward calculation.
 
 class Intersection:
 
     def __init__(self, iid, position):
         self.id = iid
         self.position = position  # (row, col)
-        self.queues = {d: deque() for d in APPROACHES} # O(1) complexity of deque
+        self.queues = {d: deque() for d in APPROACHES} # We use deque because it has O(1) complexity when adding or removing cars
         self.phase = 0
         self.phase_duration = 0
-        self.yellow_remaining = 0  # >0 means currently in all-red transition
+        self.yellow_remaining = 0  # if this variable is greater than zero, it means intersection iscurrently in all-red transition
         self.pending_phase = 0     # phase to switch to after yellow finishes
 
     def queue_lengths(self):
-        return {d: len(self.queues[d]) for d in APPROACHES} # Find the number of cars waiting in the each approach for the given intersection.
+        return {d: len(self.queues[d]) for d in APPROACHES} # This finds the number of cars waiting in the each approach for the given intersection.
 
     def total_queue(self):
         return sum(len(q) for q in self.queues.values()) # all of the cars waiting in total: for this intersection self get the total sum of vehicles in its each queue q.
 
     def get_state(self):
-        """Return discretized state tuple for Q-learning.""" # used dsicretization to reduce the state space for Q-learning, since the number of vehicles in each queue can grow indefinitely, which would make the state space too large to learn effectively. By binning the queue lengths into categories (0, 1-3, 4-7, 8+), we can capture the general level of congestion without needing to track exact counts.
+        """Returns the current traffic state in a simplified - discretized form for state space reduction""" 
         def bin_q(n):
             if n == 0:
                 return 0
@@ -57,12 +55,13 @@ class Intersection:
                 return 3
         q = self.queue_lengths()
         return (bin_q(q['N']), bin_q(q['S']), bin_q(q['E']), bin_q(q['W']),
-                self.phase) # Get queue lengths for each approach, bin them, and include the current phase in the state representation.
+                self.phase) # we use discretization to reduce the state space size
 
     def can_switch(self):
+        """ensure Traffic Light is allowed to switch""" 
         if self.yellow_remaining > 0:
             return False
-        return self.phase_duration >= MIN_PHASE # ensure it is allowed to switch
+        return self.phase_duration >= MIN_PHASE
 
     def apply_action(self, action):
         if action == 1 and self.can_switch(): # action-keep (0) or switch for 1
@@ -70,31 +69,35 @@ class Intersection:
             self.yellow_remaining = YELLOW_STEPS
 
     def tick_signal(self):
-        """Advance internal signal timing by one step (called every step)."""
+        """Increase internal signal timing by one step since it's called once per step"""
         if self.yellow_remaining > 0:
             self.yellow_remaining -= 1
             if self.yellow_remaining == 0:
                 self.phase = self.pending_phase # Switch to the new phase that was queued up
-                self.phase_duration = 0 #restart the light timer
+                self.phase_duration = 0 # Restart the light timer
         else:
             self.phase_duration += 1
 
-    def is_discharging(self): # can cars leave the queue?
-        """Queues are discharging only when not in yellow transition."""
+    def is_discharging(self):
+        """Answers can cars leave the queue? Queues are discharging only when not in yellow transition."""
         return self.yellow_remaining == 0
 
 
 class TrafficGridEnv:
+    """
+    This class represents 2x2 grid of the traffic network. In one step the agent of the intersection observes local
+    queue state and choose a phase action.
+    """
 
     def __init__(self, rows=GRID_ROWS, cols=GRID_COLS,
                  arrival_rate=0.1, episode_length=3600, seed=None):
-        self.rows = rows
+        self.rows = rows # rows and columns of the grid
         self.cols = cols
-        self.arrival_rate = arrival_rate  # Poisson lambda per boundary lane per step
-        self.episode_length = episode_length
-        self.rng = np.random.default_rng(seed) #fixed seed, same sequence of numbers will be generated
+        self.arrival_rate = arrival_rate  # Poisson lambda per boundary lane in each step
+        self.episode_length = episode_length # number of steps in one episode
+        self.rng = np.random.default_rng(seed) # Fixed seed is used which means same sequence of numbers will be generated
 
-        self.intersections = {}
+        self.intersections = {} # storing all intersections with their id as key and Intersection object as value
         for r in range(rows):
             for c in range(cols):
                 iid = (r, c)
@@ -102,8 +105,8 @@ class TrafficGridEnv:
 
         self.reset(seed=seed) # calling reset to ensure fresh start
 
-    def reset(self, seed=None): # New episode, clean slate, no cars, fresh traffic lights
-        if seed is not None: # If there is no seed it make it random every time, if there is a seed it will be the same every time, which is useful for debugging and reproducibility.
+    def reset(self, seed=None): # This function resets the episode, New episode, clean state, no cars, fresh traffic lights
+        if seed is not None:
             self.rng = np.random.default_rng(seed)
         for inter in self.intersections.values():
             for d in APPROACHES:
@@ -122,12 +125,8 @@ class TrafficGridEnv:
 
     # MOVEMENT HElPERS
 
-    def _boundary_entry_approaches(self): # is designed to identify the points
-    # at which external vehicles can enter the grid network
-        """
-        Yield (intersection_id, approach_dir) pairs where external vehicles
-        may enter the network from the outside.
-        """
+    def _boundary_entry_approaches(self): 
+        """ This function identifies points at which external vehicles can enter the grid network """
         for c in range(self.cols):
             yield ((0, c), 'N')           # top edge, entering heading south
             yield ((self.rows - 1, c), 'S')  # bottom edge, entering heading north
@@ -162,11 +161,11 @@ class TrafficGridEnv:
     # MAIN STEP
 
     def step(self, actions):
-        # 1. apply actions (may start yellow transitions).
+        # Firstly, apply actions (may start yellow transitions).
         for iid, a in actions.items(): # what does agent want to do at each intersection? Keep current phase (0) or switch (1)
             self.intersections[iid].apply_action(a)
 
-        # 2. external arrivals at boundary approaches.
+        # Second, external arrivals at boundary approaches.
         for iid, d in self._boundary_entry_approaches():
             n_arrivals = self.rng.poisson(self.arrival_rate)
             for _ in range(n_arrivals):
@@ -174,8 +173,8 @@ class TrafficGridEnv:
                 self.next_vid += 1
                 self.intersections[iid].queues[d].append(v)
 
-        # 3. Discharge vehicles from green approaches.
-        # Collect hops first, then apply changes in the queues, so a vehicle can't traverse two
+        # Then discharge vehicles from green approaches.
+        # Firstly, we collect hops, then apply changes in the queues, so a vehicle can't traverse two
         # intersections in one step.
         hops = []
         for iid, inter in self.intersections.items():
@@ -191,13 +190,13 @@ class TrafficGridEnv:
         for v, nxt in hops:
             if nxt is None:
                 # Vehicle exits network
-                self.completed_trips += 1 #number of vehicles that leaves the traffic
+                self.completed_trips += 1 # number of vehicles that leaves
                 self.total_wait_completed += v.wait_time
             else:
                 next_iid, next_dir = nxt
                 self.intersections[next_iid].queues[next_dir].append(v)
 
-        # 4. Every remaining queued vehicle accrues one second of wait time.
+        # Every remaining queued vehicle's waiting time calculated by this:
         step_total_queue = 0
         for inter in self.intersections.values():
             for d in APPROACHES:
@@ -205,30 +204,29 @@ class TrafficGridEnv:
                     v.wait_time += 1
                 step_total_queue += len(inter.queues[d])
         self.cumulative_queue += step_total_queue
-
-        # 5. Compute per-agent rewards (negative of local queued vehicles).
+        # We compute rewards for each agent which is negative of number of vehicles in one queue:
         rewards = {}
         for iid, inter in self.intersections.items():
             rewards[iid] = -float(inter.total_queue())
 
-        # 6. Advance signal timing.
+        # Then we trigger signal
         for inter in self.intersections.values():
             inter.tick_signal()
 
-        self.t += 1 # Move simulation forward one step
-        done = self.t >= self.episode_length # provided in training script
+        self.t += 1 # moving simulation forward one step
+        done = self.t >= self.episode_length # provided in training script and also config file
         obs = self.get_observations()
         info = {'step_total_queue': step_total_queue}
         return obs, rewards, done, info
-
-    def get_observations(self):
+    
+    def get_observations(self): # at last we collect the current state of every intersection and return it to the agents.
         return {iid: inter.get_state()
                 for iid, inter in self.intersections.items()}
 
     # METRICS
 
     def metrics(self):
-        """Final metrics over the episode."""
+        """This function computes final performance statistics for one episode which means one full simulation"""
         # Include currently-queued vehicles in the wait total too, so the
         # metric isn't artificially good just because trips are slow to
         # complete in heavy traffic.
